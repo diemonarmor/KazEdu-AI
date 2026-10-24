@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>KazEdu.AI</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;font-family:Arial,sans-serif}
+html,body{height:100%}
+body{background:#060913;color:#fff;display:flex;flex-direction:column}
+.header{background:#0b1021;padding:15px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid rgba(0,162,255,.3)}
+.logo{color:#00a2ff;font-weight:bold;font-size:16px}
+.clear-btn{background:#ff3344;color:#fff;border:none;padding:6px 12px;border-radius:5px;font-size:12px}
+.chat-container{flex:1;min-height:0;padding:12px;display:flex;flex-direction:column}
+.chat-box{flex:1;min-height:0;background:#0b1021;border-radius:8px;padding:12px;overflow-y:auto;border:1px solid rgba(0,162,255,.2);margin-bottom:12px;display:flex;flex-direction:column;gap:10px}
+.msg{padding:8px 12px;border-radius:6px;font-size:14px;max-width:85%;word-wrap:break-word;white-space:pre-wrap}
+.msg.user{background:rgba(0,162,255,.2);color:#00a2ff;margin-left:auto}
+.msg.ai{background:rgba(0,255,204,.1);color:#00ffcc;margin-right:auto}
+.input-box{display:flex;gap:8px}
+input{flex:1;padding:10px;background:#0b1021;border:1px solid rgba(0,162,255,.4);border-radius:6px;color:#fff;font-size:16px;outline:none}
+button.send{background:#00a2ff;color:#fff;border:none;padding:0 16px;border-radius:6px;font-weight:bold;font-size:16px}
+</style>
+</head>
+<body>
+<div class="header">
+  <div class="logo">⚡ KAZEDU.AI</div>
+  <button class="clear-btn" id="clearBtn">Очистить</button>
+</div>
+<div class="chat-container">
+  <div class="chat-box" id="box"></div>
+  <div class="input-box">
+    <input type="text" id="input" placeholder="Напиши вопрос..." autocomplete="off">
+    <button class="send" id="sendBtn">➤</button>
+  </div>
+</div>
+
+<script>
+// Адрес твоего воркера с ИИ. Оставь пустым, если ИИ не подключён.
+var API_URL = '';
+
+var KEY = 'kazedu_final';
+var box = document.getElementById('box');
+var input = document.getElementById('input');
+var memory = [];
+
+function load() {
+  try {
+    var d = localStorage.getItem(KEY);
+    if (d) { var l = JSON.parse(d); if (Array.isArray(l)) return l; }
+  } catch (e) {}
+  return memory;
+}
+function persist(list) {
+  memory = list;
+  try { localStorage.setItem(KEY, JSON.stringify(list)); } catch (e) {}
+}
+function addUI(role, text) {
+  var d = document.createElement('div');
+  d.className = 'msg ' + role;
+  d.textContent = text;
+  box.appendChild(d);
+  box.scrollTop = box.scrollHeight;
+}
+function save(role, text) {
+  var list = load().slice();
+  list.push({ role: role, text: text });
+  persist(list);
+}
+function init() {
+  box.innerHTML = '';
+  var list = load();
+  if (list.length) {
+    list.forEach(function (m) { addUI(m.role, m.text); });
+  } else {
+    var hi = 'Привет! Я KazEdu.AI. Умею решать задачи на теплоту, считать примеры и знаю формулы и историю Казахстана. Спрашивай!';
+    addUI('ai', hi); save('ai', hi);
+  }
+}
+
+function num(s) { return parseFloat(String(s).replace(',', '.')); }
+function fmt(n) { return String(Math.round(n * 1000) / 1000).replace('.', ','); }
+
+function getV(s, names) {
+  var re = new RegExp('(?:^|[^a-z0-9])(?:' + names + ')\\s*=\\s*(\\?|-?\\d+(?:[.,]\\d+)?)');
+  var m = s.match(re);
+  return m ? m[1] : null;
+}
+function heat(txt) {
+  var s = txt.toLowerCase().replace(/¹|₁/g, '1').replace(/²|₂/g, '2')
+    .replace(/м/g, 'm').replace(/с/g, 'c').replace(/т/g, 't');
+  var t1 = getV(s, 't1|t_1'), t2 = getV(s, 't2|t_2');
+  if (t1 === null || t2 === null || t1 === '?' || t2 === '?') return null;
+  var v = { m: getV(s, 'm'), c: getV(s, 'c'), q: getV(s, 'q') };
+  var unknown = null, missing = [];
+  ['m', 'c', 'q'].forEach(function (k) {
+    if (v[k] === '?') unknown = k;
+    else if (v[k] === null) missing.push(k);
+  });
+  if (!unknown && missing.length === 1) unknown = missing[0];
+  if (!unknown) return null;
+  var dt = Math.abs(num(t1) - num(t2));
+  if (dt === 0) return 'Разность температур равна 0, считать нечего.';
+  var m = num(v.m), c = num(v.c), q = num(v.q);
+  var head = 'Формула: Q = c · m · Δt\nΔt = ' + fmt(num(t1)) + ' − ' + fmt(num(t2)) + ' → |Δt| = ' + fmt(dt) + '\n';
+  if (unknown === 'c' && !isNaN(m) && !isNaN(q))
+    return head + 'c = Q / (m · Δt) = ' + fmt(q) + ' / (' + fmt(m) + ' · ' + fmt(dt) + ') = ' + fmt(q / (m * dt)) + ' Дж/(кг·°C)';
+  if (unknown === 'q' && !isNaN(m) && !isNaN(c))
+    return head + 'Q = c · m · Δt = ' + fmt(c) + ' · ' + fmt(m) + ' · ' + fmt(dt) + ' = ' + fmt(c * m * dt) + ' Дж';
+  if (unknown === 'm' && !isNaN(c) && !isNaN(q))
+    return head + 'm = Q / (c · Δt) = ' + fmt(q) + ' / (' + fmt(c) + ' · ' + fmt(dt) + ') = ' + fmt(q / (c * dt)) + ' кг';
+  return null;
+}
+
+function calc(txt) {
+  var e = txt.trim().replace(/=\s*\??$/, '').replace(/,/g, '.')
+    .replace(/[×x]/g, '*').replace(/[÷:]/g, '/').replace(/\^/g, '**');
+  if (!/^[\d\s+\-*\/().%]+$/.test(e) || !/\d\s*[+\-*\/%]\s*[\d(]/.test(e)) return null;
+  try {
+    var r = Function('"use strict";return (' + e + ')')();
+    if (typeof r === 'number' && isFinite(r)) return txt.trim().replace(/=\s*\??$/, '') + ' = ' + fmt(r);
+  } catch (err) {}
+  return null;
+}
+
+var kb = [
+  [/прив|прув|салем|сәлем|здравств|здаров|(^|[^а-я])хай([^а-я]|$)/, 'Привет! Готов к учёбе. Пришли задачу или вопрос.'],
+  [/ханств|керей|жанибек|(^|[^а-я])хан([^а-я]|$)/, 'Казахское ханство создано Кереем и Жанибеком в 1465–1466 годах.'],
+  [/абылай/, 'Абылай хан (1711–1781) — один из самых известных правителей казахов XVIII века. Объединял жузы и боролся с джунгарами.'],
+  [/кенесар/, 'Кенесары Касымов возглавил национально-освободительное восстание 1837–1847 годов против Российской империи.'],
+  [/независимост/, 'Казахстан провозгласил независимость 16 декабря 1991 года.'],
+  [/алаш/, 'Алаш — партия и автономия казахской интеллигенции 1917–1920 годов. Лидеры: Алихан Букейханов, Ахмет Байтурсынулы, Мирджакип Дулатов.'],
+  [/столиц|астан/, 'Столица Казахстана — Астана (столица с 1997 года; в 2019–2022 называлась Нур-Султан).'],
+  [/пифагор/, 'Теорема Пифагора: в прямоугольном треугольнике c² = a² + b², где c — гипотенуза.'],
+  [/дискриминант|квадратн/, 'Для ax² + bx + c = 0: D = b² − 4ac, x = (−b ± √D) / 2a. Если D < 0, действительных корней нет.'],
+  [/площадь круга|длина окружности/, 'Площадь круга S = πr², длина окружности L = 2πr.'],
+  [/скорост/, 'Скорость v = s / t. Отсюда s = v · t и t = s / v.'],
+  [/плотност/, 'Плотность ρ = m / V. Масса m = ρ · V, объём V = m / ρ.'],
+  [/закон ома|сопротивлен|напряжен/, 'Закон Ома: I = U / R. Мощность P = U · I.'],
+  [/теплоемкост|нагре|теплот/, 'Количество теплоты Q = c · m · Δt.\nНапиши данные так: m=1 t1=40 t2=10 Q=900 c=?\nи я посчитаю.'],
+  [/физик/, 'Основные формулы: v = s/t; ρ = m/V; F = m·a; I = U/R; Q = c·m·Δt. Какую разобрать подробнее или пришли задачу?'],
+  [/математик|алгебр|геометр|уравнен/, 'Могу посчитать пример (например 12*5+3), напомнить формулы (дискриминант, Пифагор, площадь круга). Что нужно?'],
+  [/(^|[^а-я])(ент|тест|экзамен)([^а-я]|$)/, 'Для ЕНТ повторяй математическую грамотность, историю Казахстана и грамотность чтения!'],
+  [/спасибо|рахмет/, 'Пожалуйста! Обращайся ещё 😊']
+];
+
+function getAnswer(txt) {
+  var r = heat(txt) || calc(txt);
+  if (r) return r;
+  var q = txt.toLowerCase().replace(/ё/g, 'е');
+  for (var i = 0; i < kb.length; i++) {
+    if (kb[i][0].test(q)) return kb[i][1];
+  }
+  return 'Этого я пока не знаю. Я умею:\n• задачи на теплоту: m=1 t1=40 t2=10 Q=900 c=?\n• примеры: 12*5+3\n• формулы по физике и математике\n• историю Казахстана\nСпроси, например: «формула плотности» или «когда независимость».';
+}
+
+function askAI(val) {
+  var msgs = load().slice(-10).map(function (m) {
+    return { role: m.role === 'ai' ? 'assistant' : 'user', content: m.text };
+  });
+  while (msgs.length && msgs[0].role !== 'user') msgs.shift();
+  return fetch(API_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ messages: msgs })
+  })
+  .then(function (r) { return r.json(); })
+  .then(function (d) { return d.text || getAnswer(val); })
+  .catch(function () { return getAnswer(val); });
+}
+
+function sendMsg() {
+  var val = input.value.trim();
+  if (!val) return;
+  addUI('user', val); save('user', val);
+  input.value = '';
+  var p = API_URL ? askAI(val) : new Promise(function (res) {
+    setTimeout(function () { res(getAnswer(val)); }, 300);
+  });
+  p.then(function (r) { addUI('ai', r); save('ai', r); });
+}
+
+document.getElementById('sendBtn').addEventListener('click', sendMsg);
+input.addEventListener('keydown', function (e) {
+  if (e.key === 'Enter') { e.preventDefault(); sendMsg(); }
+});
+document.getElementById('clearBtn').addEventListener('click', function () {
+  memory = [];
+  try { localStorage.removeItem(KEY); } catch (e) {}
+  init();
+});
+
+init();
+</script>
+</body>
+</html>
